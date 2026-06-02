@@ -1,7 +1,26 @@
 <?php 
 session_start(); 
-$is_light = isset($_COOKIE['site_theme']) && $_COOKIE['site_theme'] == 'light';
-$theme_class = $is_light ? 'light-mode' : '';
+
+// grab global json
+$db = 'database.json';
+if (file_exists($db)) {
+    $d = json_decode(file_get_contents($db), true);
+    $_SESSION['users'] = $d['users'];
+    $_SESSION['collections'] = $d['collections'];
+    $_SESSION['reviews'] = $d['reviews'];
+}
+
+// cookie magic
+if (!isset($_SESSION['curr_user']) && isset($_COOKIE['auth_token'])) {
+    $u = $_COOKIE['auth_token'];
+    if (isset($_SESSION['users'][$u])) {
+        $_SESSION['curr_user'] = $u;
+        $_SESSION['curr_name'] = $_SESSION['users'][$u]['name'];
+        $_SESSION['role'] = $_SESSION['users'][$u]['role'];
+    }
+}
+
+$theme = (isset($_COOKIE['site_theme']) && $_COOKIE['site_theme'] == 'light') ? 'light-mode' : '';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -11,28 +30,31 @@ $theme_class = $is_light ? 'light-mode' : '';
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
-<body class="<?= $theme_class ?>">
+<body class="<?= $theme ?>">
     
     <script>
         const activeUser = "<?= $_SESSION['curr_user'] ?? '' ?>";
         const activeName = "<?= addslashes($_SESSION['curr_name'] ?? '') ?>";
         const userRole = "<?= $_SESSION['role'] ?? '' ?>";
-        // using json_encode so quotes don't break the js parser
-        let revDB = <?= json_encode($_SESSION['reviews'] ?? new stdClass()) ?>;
+        // passing php array to js directly
+        var revDB = <?= json_encode($_SESSION['reviews'] ?? new stdClass()) ?>;
     </script>
 
     <nav class="nav">
         <div class="logo" onclick="switchTab('home')">Zenith<span>Anime</span></div>
-        <input type="text" id="searchBar" placeholder="Search anime..." onkeyup="if(event.key === 'Enter') doSearch()">
+        
+        <input type="text" id="searchBar" placeholder="Search..." onkeyup="if(event.key === 'Enter') doSearch()">
         
         <div class="user-area">
             <?php if (isset($_SESSION['curr_user'])): ?>
-                <span class="user-name" onclick="switchTab('settings')">Hi, <?= htmlspecialchars($_SESSION['curr_name']) ?> ⚙️</span>
+                <span class="user-name" onclick="switchTab('settings')" style="cursor:pointer;">
+                    Hi, <?= htmlspecialchars($_SESSION['curr_name']) ?> ⚙️
+                </span>
                 
                 <?php if ($_SESSION['role'] == 'admin'): ?>
                     <button class="btn main-btn" onclick="switchTab('admin')">Admin</button>
                 <?php else: ?>
-                    <button class="btn main-btn" onclick="switchTab('col')">My Collection</button>
+                    <button class="btn main-btn" onclick="switchTab('col')">My Lists</button>
                 <?php endif; ?>
                 
                 <form action="backend.php" method="POST" style="margin:0;">
@@ -40,7 +62,7 @@ $theme_class = $is_light ? 'light-mode' : '';
                     <button class="btn alt-btn">Logout</button>
                 </form>
             <?php else: ?>
-                <button class="btn main-btn" onclick="showModal('auth-modal')">Login</button>
+                <button class="btn main-btn" onclick="showModal('auth-modal')">Login / Reg</button>
             <?php endif; ?>
         </div>
     </nav>
@@ -51,8 +73,8 @@ $theme_class = $is_light ? 'light-mode' : '';
             <?php if (isset($_SESSION['curr_user'])): ?>
                 <p><b>Name:</b> <?= htmlspecialchars($_SESSION['curr_name']) ?></p>
                 <p><b>Username:</b> @<?= htmlspecialchars($_SESSION['curr_user']) ?></p>
-                <hr style="border-color: var(--border); margin: 1.5rem 0;">
-                <button class="btn main-btn" onclick="toggleTheme()">Switch Dark/Light Mode</button>
+                <br>
+                <button class="btn main-btn" onclick="toggleTheme()">Toggle Dark/Light Mode</button>
             <?php endif; ?>
         </div>
     </div>
@@ -78,15 +100,15 @@ $theme_class = $is_light ? 'light-mode' : '';
         <?php 
         if (isset($_SESSION['curr_user']) && $_SESSION['role'] != 'admin'): 
             $lists = $_SESSION['collections'][$_SESSION['curr_user']];
-            $categories = ['later' => 'Watch Later', 'watched' => 'Watched', 'favs' => 'Favorites'];
+            $cats = ['later' => 'Watch Later', 'watched' => 'Watched', 'favs' => 'Favorites'];
             
-            foreach ($categories as $key => $title):
+            foreach ($cats as $k => $title):
         ?>
             <h3><?= $title ?></h3>
             <div class="grid">
                 <?php 
-                if (empty($lists[$key])) echo "<p class='mute'>Nothing here yet.</p>";
-                foreach ($lists[$key] as $a): 
+                if (empty($lists[$k])) echo "<p style='color:grey; padding-left:20px;'>Empty</p>";
+                foreach ($lists[$k] as $a): 
                 ?>
                     <div class="card" onclick="loadAnime(<?= $a['id'] ?>)">
                         <img src="<?= $a['img'] ?>">
@@ -95,6 +117,32 @@ $theme_class = $is_light ? 'light-mode' : '';
                 <?php endforeach; ?>
             </div>
         <?php endforeach; endif; ?>
+    </div>
+
+    <div id="tab-admin" class="tab">
+        <h2 class="sec-title">All Reviews (Admin)</h2>
+        <div class="card-box">
+            <?php
+            if (isset($_SESSION['role']) && $_SESSION['role'] == 'admin') {
+                $chk = true;
+                foreach ($_SESSION['reviews'] as $aid => $revs) {
+                    foreach ($revs as $r) {
+                        $chk = false;
+                        echo "<div class='rev-box'>
+                                <b>{$r['user']}</b> (@{$r['username']}) - Anime: $aid<br>{$r['txt']}
+                                <form action='backend.php' method='POST' style='float:right; margin-top:-25px;'>
+                                    <input type='hidden' name='action' value='del_rev'>
+                                    <input type='hidden' name='aid' value='$aid'>
+                                    <input type='hidden' name='rid' value='{$r['id']}'>
+                                    <button class='btn-del'>Del</button>
+                                </form>
+                              </div>";
+                    }
+                }
+                if ($chk) echo "<p>No reviews found.</p>";
+            }
+            ?>
+        </div>
     </div>
 
     <div id="anime-modal" class="modal">
@@ -126,6 +174,8 @@ $theme_class = $is_light ? 'light-mode' : '';
                                 </form>
                                 <?php endforeach; ?>
                             </div>
+                        <?php else: ?>
+                            <p style="color:red; font-size:14px;">Login to save anime.</p>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -136,9 +186,11 @@ $theme_class = $is_light ? 'light-mode' : '';
                         <form action="backend.php" method="POST" class="rev-form">
                             <input type="hidden" name="action" value="add_rev">
                             <input type="hidden" name="aid" class="form-aid">
-                            <textarea name="rev_txt" placeholder="Write a review..." required></textarea>
+                            <textarea name="rev_txt" placeholder="Write something..." required></textarea>
                             <button class="btn main-btn">Post</button>
                         </form>
+                    <?php else: ?>
+                        <p style="color:grey; font-size:12px;">Login to post reviews.</p>
                     <?php endif; ?>
                     <div id="rev-list"></div>
                 </div>
@@ -154,36 +206,38 @@ $theme_class = $is_light ? 'light-mode' : '';
                 <h2>Login</h2>
                 <form action="backend.php" method="POST">
                     <input type="hidden" name="action" value="login">
-                    <input type="text" name="user" placeholder="Username" value="<?= $_COOKIE['remembered_user'] ?? '' ?>" required>
+                    <?php if(isset($_GET['error']) && $_GET['error'] == 'invalid'): ?>
+                        <div style="color:red; font-size:12px; margin-bottom:10px;">Bad login, try again.</div>
+                    <?php endif; ?>
+                    <input type="text" name="user" placeholder="Username" value="<?= $_COOKIE['auth_token'] ?? '' ?>" required>
                     <input type="password" name="pass" placeholder="Password" required>
                     <button class="btn main-btn block-btn">Enter</button>
                 </form>
-                <div class="links"><span onclick="swapAuth('f-signup')">Create Account</span></div>
+                <div class="links"><span onclick="swapAuth('f-signup')">Need an account?</span></div>
             </div>
 
             <div id="f-signup" style="display:none;">
-                <h2>Sign Up</h2>
+                <h2>Register</h2>
                 <form action="backend.php" method="POST">
                     <input type="hidden" name="action" value="signup">
                     <input type="text" name="name" placeholder="Full Name" required>
-                    <input type="text" name="phone" placeholder="Phone Number" required>
+                    <input type="text" name="phone" placeholder="Phone" required>
                     <input type="text" name="otp" placeholder="OTP (type 1234)" required>
                     <input type="text" name="user" placeholder="Username" required>
                     
                     <?php if(isset($_GET['error']) && $_GET['error'] == 'taken'): ?>
-                        <div class="error-msg">Username taken, try another.</div>
+                        <div style="color:red; font-size:12px; margin-bottom:10px;">Username taken bro.</div>
                     <?php endif; ?>
                     
                     <input type="password" name="pass" placeholder="Password" required>
-                    <button class="btn main-btn block-btn">Register</button>
+                    <button class="btn main-btn block-btn">Sign Up</button>
                 </form>
-                <div class="links"><span onclick="swapAuth('f-login')">Back to Login</span></div>
+                <div class="links"><span onclick="swapAuth('f-login')">Back to login</span></div>
             </div>
         </div>
     </div>
 
     <div id="welcome-popup" class="toast"></div>
-
     <script src="app.js"></script>
 </body>
 </html>
