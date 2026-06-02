@@ -1,60 +1,87 @@
 <?php
 session_start();
 
-// TODO: move this to a real MySQL database when I learn how
-if (!isset($_SESSION['users'])) {
-    $_SESSION['users'] = [
-        'admin' => ['pass' => 'admin123', 'name' => 'Site Admin', 'phone' => '0000000000', 'role' => 'admin']
-    ];
-    $_SESSION['collections'] = [];
-    $_SESSION['reviews'] = [];
-    $_SESSION['rev_id'] = 1; // auto-increment hack
+$dbFile = 'database.json'; // don't change this path
+
+function loadDB() {
+    global $dbFile;
+    if (file_exists($dbFile)) {
+        $raw = file_get_contents($dbFile);
+        $data = json_decode($raw, true);
+        
+        $_SESSION['users'] = $data['users'];
+        $_SESSION['collections'] = $data['collections'];
+        $_SESSION['reviews'] = $data['reviews'];
+        $_SESSION['rev_id'] = $data['rev_id'];
+    } else {
+        // first run setup
+        $_SESSION['users'] = [
+            'admin' => ['pass' => 'admin123', 'name' => 'God', 'phone' => '000', 'role' => 'admin']
+        ];
+        $_SESSION['collections'] = [];
+        $_SESSION['reviews'] = [];
+        $_SESSION['rev_id'] = 1; // idk if there's a better way to do this but it works
+        saveDB();
+    }
 }
 
-// var_dump($_POST); die(); // <-- uncomment this to debug form submissions
+function saveDB() {
+    global $dbFile;
+    $dump = [
+        'users' => $_SESSION['users'],
+        'collections' => $_SESSION['collections'],
+        'reviews' => $_SESSION['reviews'],
+        'rev_id' => $_SESSION['rev_id']
+    ];
+    file_put_contents($dbFile, json_encode($dump, JSON_PRETTY_PRINT));
+}
 
-$action = $_POST['action'] ?? '';
+loadDB(); // init
 
-switch ($action) {
+$act = $_POST['action'] ?? '';
+// print_r($_POST); die(); // uncomment if form breaks again
+
+switch ($act) {
     case 'signup':
-        $u = $_POST['user'];
-        // check if username is taken
-        if (isset($_SESSION['users'][$u])) {
+        $usr = $_POST['user'];
+        
+        // checking if taken
+        if (isset($_SESSION['users'][$usr])) {
             header("Location: index.php?error=taken");
-            die();
+            exit;
         }
         
-        // pretending otp works
+        // TODO: actually connect to a real SMS gateway for OTP later
         if ($_POST['otp'] == '1234') {
-            $_SESSION['users'][$u] = [
+            $_SESSION['users'][$usr] = [
                 'pass' => $_POST['pass'], 
                 'name' => $_POST['name'], 
                 'phone' => $_POST['phone'], 
                 'role' => 'user'
             ];
-            // setup empty lists for the new guy
-            $_SESSION['collections'][$u] = ['later' => [], 'watched' => [], 'favs' => []];
             
-            // auto-login
-            $_SESSION['curr_user'] = $u;
+            $_SESSION['collections'][$usr] = ['later' => [], 'watched' => [], 'favs' => []];
+            saveDB();
+            
+            $_SESSION['curr_user'] = $usr;
             $_SESSION['curr_name'] = $_POST['name'];
             $_SESSION['role'] = 'user';
             
+            setcookie('auth_token', $usr, time() + (86400 * 30), "/"); // 30 days
             header("Location: index.php?welcome=1");
         }
         break;
 
     case 'login':
-        $u = $_POST['user'];
-        $p = $_POST['pass'];
+        $usr = $_POST['user'];
+        $pwd = $_POST['pass'];
         
-        if (isset($_SESSION['users'][$u]) && $_SESSION['users'][$u]['pass'] == $p) {
-            $_SESSION['curr_user'] = $u;
-            $_SESSION['curr_name'] = $_SESSION['users'][$u]['name'];
-            $_SESSION['role'] = $_SESSION['users'][$u]['role'];
+        if (isset($_SESSION['users'][$usr]) && $_SESSION['users'][$usr]['pass'] == $pwd) {
+            $_SESSION['curr_user'] = $usr;
+            $_SESSION['curr_name'] = $_SESSION['users'][$usr]['name'];
+            $_SESSION['role'] = $_SESSION['users'][$usr]['role'];
             
-            // remember me for 30 days
-            setcookie('remembered_user', $u, time() + (86400 * 30), "/");
+            setcookie('auth_token', $usr, time() + (86400 * 30), "/");
             header("Location: index.php?welcome=1");
         } else {
             header("Location: index.php?error=invalid");
@@ -63,52 +90,56 @@ switch ($action) {
 
     case 'logout':
         session_destroy();
+        setcookie('auth_token', '', time() - 3600, "/"); // kill cookie
         header("Location: index.php");
         break;
 
     case 'add_list':
-        $u = $_SESSION['curr_user'];
-        $type = $_POST['type']; 
-        $aid = $_POST['aid'];
+        $usr = $_SESSION['curr_user'];
+        $t = $_POST['type']; 
+        $id = $_POST['aid'];
 
-        // check if it's already in the list so we don't get duplicates
-        $already_exists = false;
-        foreach ($_SESSION['collections'][$u][$type] as $item) {
-            if ($item['id'] == $aid) $already_exists = true;
+        // check dupes
+        $dupe = false;
+        foreach ($_SESSION['collections'][$usr][$t] as $i) {
+            if ($i['id'] == $id) $dupe = true;
         }
 
-        if (!$already_exists) {
-            $_SESSION['collections'][$u][$type][] = [
-                'id' => $aid, 
+        if (!$dupe) {
+            $_SESSION['collections'][$usr][$t][] = [
+                'id' => $id, 
                 'title' => $_POST['title'], 
                 'img' => $_POST['img']
             ];
+            saveDB(); 
         }
-        // kick em back to the anime they were looking at
-        header("Location: index.php?open=" . $aid);
+        header("Location: index.php?open=" . $id);
         break;
 
     case 'add_rev':
-        $aid = $_POST['aid'];
-        if (!isset($_SESSION['reviews'][$aid])) $_SESSION['reviews'][$aid] = [];
+        $id = $_POST['aid'];
+        if (!isset($_SESSION['reviews'][$id])) $_SESSION['reviews'][$id] = [];
         
-        $_SESSION['reviews'][$aid][] = [
+        $_SESSION['reviews'][$id][] = [
             'id' => $_SESSION['rev_id']++,
             'user' => $_SESSION['curr_name'], 
             'username' => $_SESSION['curr_user'],
             'txt' => $_POST['rev_txt']
         ];
-        header("Location: index.php?open=" . $aid);
+        
+        saveDB(); 
+        header("Location: index.php?open=" . $id);
         break;
 
     case 'del_rev':
-        $aid = $_POST['aid'];
-        foreach ($_SESSION['reviews'][$aid] as $k => $r) {
+        $id = $_POST['aid'];
+        foreach ($_SESSION['reviews'][$id] as $k => $r) {
             if ($r['id'] == $_POST['rid']) {
-                unset($_SESSION['reviews'][$aid][$k]);
+                unset($_SESSION['reviews'][$id][$k]);
             }
         }
-        header("Location: index.php?open=" . $aid);
+        saveDB(); 
+        header("Location: index.php?open=" . $id);
         break;
 }
 ?>
