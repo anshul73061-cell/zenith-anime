@@ -1,7 +1,7 @@
 <?php 
 session_start(); 
 
-// grab global json
+// load global db
 $db = 'database.json';
 if (file_exists($db)) {
     $d = json_decode(file_get_contents($db), true);
@@ -21,6 +21,7 @@ if (!isset($_SESSION['curr_user']) && isset($_COOKIE['auth_token'])) {
 }
 
 $theme = (isset($_COOKIE['site_theme']) && $_COOKIE['site_theme'] == 'light') ? 'light-mode' : '';
+$my_avatar = $_SESSION['users'][$_SESSION['curr_user']]['avatar'] ?? '👤';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -36,19 +37,21 @@ $theme = (isset($_COOKIE['site_theme']) && $_COOKIE['site_theme'] == 'light') ? 
         const activeUser = "<?= $_SESSION['curr_user'] ?? '' ?>";
         const activeName = "<?= addslashes($_SESSION['curr_name'] ?? '') ?>";
         const userRole = "<?= $_SESSION['role'] ?? '' ?>";
-        // passing php array to js directly
         var revDB = <?= json_encode($_SESSION['reviews'] ?? new stdClass()) ?>;
     </script>
 
     <nav class="nav">
         <div class="logo" onclick="switchTab('home')">Zenith<span>Anime</span></div>
         
-        <input type="text" id="searchBar" placeholder="Search..." onkeyup="if(event.key === 'Enter') doSearch()">
+        <div style="display:flex; gap:10px;">
+            <input type="text" id="searchBar" placeholder="Search..." onkeyup="if(event.key === 'Enter') doSearch()">
+            <button class="btn alt-btn" onclick="getRandom()">🎲 Lucky</button>
+        </div>
         
         <div class="user-area">
             <?php if (isset($_SESSION['curr_user'])): ?>
-                <span class="user-name" onclick="switchTab('settings')" style="cursor:pointer;">
-                    Hi, <?= htmlspecialchars($_SESSION['curr_name']) ?> ⚙️
+                <span class="user-name" onclick="switchTab('settings')" style="cursor:pointer; font-size:1.2rem;">
+                    <?= $my_avatar ?> <?= htmlspecialchars($_SESSION['curr_name']) ?> ⚙️
                 </span>
                 
                 <?php if ($_SESSION['role'] == 'admin'): ?>
@@ -71,10 +74,34 @@ $theme = (isset($_COOKIE['site_theme']) && $_COOKIE['site_theme'] == 'light') ? 
         <h2 class="sec-title">Settings</h2>
         <div class="card-box">
             <?php if (isset($_SESSION['curr_user'])): ?>
-                <p><b>Name:</b> <?= htmlspecialchars($_SESSION['curr_name']) ?></p>
-                <p><b>Username:</b> @<?= htmlspecialchars($_SESSION['curr_user']) ?></p>
-                <br>
-                <button class="btn main-btn" onclick="toggleTheme()">Toggle Dark/Light Mode</button>
+                <div style="display:flex; gap:20px; align-items:center;">
+                    <div style="font-size:4rem; background:var(--bg); border-radius:50%; width:100px; height:100px; text-align:center; line-height:100px; border:2px solid var(--border);">
+                        <?= $my_avatar ?>
+                    </div>
+                    <div>
+                        <p><b>Name:</b> <?= htmlspecialchars($_SESSION['curr_name']) ?></p>
+                        <p><b>Username:</b> @<?= htmlspecialchars($_SESSION['curr_user']) ?></p>
+                    </div>
+                </div>
+                
+                <hr style="border-color: var(--border); margin: 1.5rem 0;">
+                
+                <h3>Change Avatar</h3>
+                <form action="backend.php" method="POST" style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px;">
+                    <input type="hidden" name="action" value="change_avatar">
+                    <?php 
+                    $emojis = ['🦊','🐼','🐯','🐸','🐵','🦉','🐺','🦄','🐉','👽','💀','🤖','👺','👾'];
+                    foreach($emojis as $e): ?>
+                        <label class="avatar-label">
+                            <input type="radio" name="avatar_emoji" value="<?= $e ?>" required>
+                            <span class="emoji-box"><?= $e ?></span>
+                        </label>
+                    <?php endforeach; ?>
+                    <button class="btn main-btn" style="width:100%;">Save Avatar</button>
+                </form>
+
+                <hr style="border-color: var(--border); margin: 1.5rem 0;">
+                <button class="btn alt-btn" onclick="toggleTheme()">Toggle Dark/Light Mode</button>
             <?php endif; ?>
         </div>
     </div>
@@ -84,13 +111,10 @@ $theme = (isset($_COOKIE['site_theme']) && $_COOKIE['site_theme'] == 'light') ? 
             <h3>🔥 Trending</h3>
             <div class="slider-track" id="hero-track"></div>
         </section>
-        
         <h3 class="sec-title">Most Popular</h3>
         <div class="grid" id="pop-grid"></div>
-        
         <h3 class="sec-title">Top Rated</h3>
         <div class="grid" id="top-grid"></div>
-        
         <h3 class="sec-title">Recent</h3>
         <div class="grid" id="recent-grid"></div>
     </div>
@@ -100,13 +124,182 @@ $theme = (isset($_COOKIE['site_theme']) && $_COOKIE['site_theme'] == 'light') ? 
         <?php 
         if (isset($_SESSION['curr_user']) && $_SESSION['role'] != 'admin'): 
             $lists = $_SESSION['collections'][$_SESSION['curr_user']];
-            $cats = ['later' => 'Watch Later', 'watched' => 'Watched', 'favs' => 'Favorites'];
+            $cats = ['watching' => 'Currently Watching', 'later' => 'Watch Later', 'watched' => 'Finished', 'favs' => 'Favorites'];
             
             foreach ($cats as $k => $title):
         ?>
             <h3><?= $title ?></h3>
             <div class="grid">
                 <?php 
+                if (empty($lists[$k])) echo "<p style='color:grey; padding-left:20px;'>Empty list.</p>";
+                foreach ($lists[$k] as $a): 
+                ?>
+                    <div class="card">
+                        <img src="<?= $a['img'] ?>" onclick="loadAnime(<?= $a['id'] ?>)">
+                        <h4><?= htmlspecialchars($a['title']) ?></h4>
+                        
+                        <?php if($k == 'watching'): ?>
+                        <div class="tracker">
+                            <span>Eps: <?= $a['eps'] ?></span>
+                            <form action="backend.php" method="POST" style="display:inline;">
+                                <input type="hidden" name="action" value="update_ep">
+                                <input type="hidden" name="aid" value="<?= $a['id'] ?>">
+                                <button name="math" value="minus" class="ep-btn">-</button>
+                                <button name="math" value="plus" class="ep-btn">+</button>
+                            </form>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endforeach; endif; ?>
+    </div>
+
+    <div id="tab-admin" class="tab">
+        <h2 class="sec-title">All Reviews (Admin)</h2>
+        <div class="card-box">
+            <?php
+            if (isset($_SESSION['role']) && $_SESSION['role'] == 'admin') {
+                $chk = true;
+                foreach ($_SESSION['reviews'] as $aid => $revs) {
+                    foreach ($revs as $r) {
+                        $chk = false;
+                        echo "<div class='rev-box'>
+                                <b>{$r['user']}</b> (@{$r['username']}) - Anime: $aid<br>{$r['txt']}
+                                <form action='backend.php' method='POST' style='float:right; margin-top:-25px;'>
+                                    <input type='hidden' name='action' value='del_rev'>
+                                    <input type='hidden' name='aid' value='$aid'>
+                                    <input type='hidden' name='rid' value='{$r['id']}'>
+                                    <button class='btn-del'>Del</button>
+                                </form>
+                              </div>";
+                    }
+                }
+                if ($chk) echo "<p>No reviews found.</p>";
+            }
+            ?>
+        </div>
+    </div>
+
+    <div id="anime-modal" class="modal">
+        <div class="modal-box">
+            <span class="close" onclick="hideModal('anime-modal')">&times;</span>
+            <div id="loading">Loading...</div>
+            
+            <div id="anime-data" style="display:none;">
+                <div class="split">
+                    <img id="m-img" src="">
+                    <div class="info">
+                        <h2 id="m-title">Title</h2>
+                        <div class="tags">
+                            <span id="m-score">⭐</span>
+                            <span id="m-eps"></span>
+                        </div>
+                        <p id="m-desc"></p>
+                        
+                        <?php if (isset($_SESSION['curr_user'])): ?>
+                            <div class="btn-group" style="flex-wrap: wrap;">
+                                <?php foreach(['watching' => '▶ Watching', 'later' => '⏱ Later', 'watched' => '✅ Done', 'favs' => '❤️ Fav'] as $k => $v): ?>
+                                <form action="backend.php" method="POST" style="flex: 1 1 45%;">
+                                    <input type="hidden" name="action" value="add_list">
+                                    <input type="hidden" name="type" value="<?= $k ?>">
+                                    <input type="hidden" name="aid" class="form-aid">
+                                    <input type="hidden" name="title" class="form-title">
+                                    <input type="hidden" name="img" class="form-img">
+                                    <button class="btn alt-btn block-btn" style="margin-top:5px;"><?= $v ?></button>
+                                </form>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php else: ?>
+                            <p style="color:var(--red); font-size:14px;">Login to save to lists.</p>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                
+                <div class="reviews-section">
+                    <h3>Community Reviews</h3>
+                    
+                    <div style="background: var(--bg); padding: 10px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 15px;">
+                        <strong>Zenith Verdict: </strong> 
+                        <span id="zenith-verdict" style="color: var(--red); font-weight: bold;">Calculating...</span>
+                    </div>
+
+                    <?php if (isset($_SESSION['curr_user'])): ?>
+                        <form action="backend.php" method="POST" class="rev-form">
+                            <input type="hidden" name="action" value="add_rev">
+                            <input type="hidden" name="aid" class="form-aid">
+                            
+                            <select name="tier_score" required>
+                                <option value="" disabled selected>Rate it...</option>
+                                <option value="5">🐐 Peak Fiction</option>
+                                <option value="4">🔥 Really Good</option>
+                                <option value="3">👍 One-Time Watch</option>
+                                <option value="2">🍿 Just a Timepass</option>
+                                <option value="1">💀 Why Does This Exist?</option>
+                            </select>
+
+                            <textarea name="rev_txt" placeholder="Write something..." required></textarea>
+                            
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <label style="font-size:0.9rem; cursor:pointer;">
+                                    <input type="checkbox" name="is_spoiler" value="1"> ⚠️ Contains Spoilers
+                                </label>
+                                <button class="btn main-btn">Post</button>
+                            </div>
+                        </form>
+                    <?php else: ?>
+                        <p style="color:grey; font-size:12px;">Login to post reviews.</p>
+                    <?php endif; ?>
+                    
+                    <div id="rev-list" style="margin-top:20px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="auth-modal" class="modal">
+        <div class="modal-box auth-box">
+            <span class="close" onclick="hideModal('auth-modal')">&times;</span>
+            
+            <div id="f-login">
+                <h2>Login</h2>
+                <form action="backend.php" method="POST">
+                    <input type="hidden" name="action" value="login">
+                    <?php if(isset($_GET['error']) && $_GET['error'] == 'invalid'): ?>
+                        <div class="error-msg">Bad login, try again.</div>
+                    <?php endif; ?>
+                    <input type="text" name="user" placeholder="Username" value="<?= $_COOKIE['auth_token'] ?? '' ?>" required>
+                    <input type="password" name="pass" placeholder="Password" required>
+                    <button class="btn main-btn block-btn">Enter</button>
+                </form>
+                <div class="links"><span onclick="swapAuth('f-signup')">Need an account?</span></div>
+            </div>
+
+            <div id="f-signup" style="display:none;">
+                <h2>Register</h2>
+                <form action="backend.php" method="POST">
+                    <input type="hidden" name="action" value="signup">
+                    <input type="text" name="name" placeholder="Full Name" required>
+                    <input type="text" name="phone" placeholder="Phone" required>
+                    <input type="text" name="otp" placeholder="OTP (type 1234)" required>
+                    <input type="text" name="user" placeholder="Username" required>
+                    
+                    <?php if(isset($_GET['error']) && $_GET['error'] == 'taken'): ?>
+                        <div class="error-msg">Username taken bro.</div>
+                    <?php endif; ?>
+                    
+                    <input type="password" name="pass" placeholder="Password" required>
+                    <button class="btn main-btn block-btn">Sign Up</button>
+                </form>
+                <div class="links"><span onclick="swapAuth('f-login')">Back to login</span></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="welcome-popup" class="toast"></div>
+    <script src="app.js"></script>
+</body>
+</html>
                 if (empty($lists[$k])) echo "<p style='color:grey; padding-left:20px;'>Empty</p>";
                 foreach ($lists[$k] as $a): 
                 ?>
