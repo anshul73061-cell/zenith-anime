@@ -6,85 +6,101 @@ $dbFile = 'database.json';
 function loadDB() {
     global $dbFile;
     if (file_exists($dbFile)) {
-        $raw = file_get_contents($dbFile);
-        $data = json_decode($raw, true);
+        $data = json_decode(file_get_contents($dbFile), true);
+        $_SESSION['db'] = $data;
         
-        $_SESSION['users'] = $data['users'];
-        $_SESSION['collections'] = $data['collections'];
-        $_SESSION['reviews'] = $data['reviews'];
-        $_SESSION['rev_id'] = $data['rev_id'];
+        // duct-tape patch to upgrade old accounts to have social features
+        foreach($_SESSION['db']['users'] as $k => $v) {
+            if(!isset($v['following'])) $_SESSION['db']['users'][$k]['following'] = [];
+            if(!isset($v['inbox'])) $_SESSION['db']['users'][$k]['inbox'] = [];
+        }
     } else {
-        // first time setup
-        $_SESSION['users'] = [
-            'admin' => ['pass' => 'admin123', 'name' => 'God', 'phone' => '000', 'role' => 'admin', 'avatar' => '🐉']
+        // brand new setup for the server
+        $_SESSION['db'] = [
+            'users' => [
+                'admin' => ['pass' => 'admin123', 'name' => 'God', 'avatar' => '🐉', 'role' => 'admin', 'following' => [], 'inbox' => []]
+            ],
+            'collections' => [], 'reviews' => [], 'rev_id' => 1, 'activity' => [],
+            'versus' => ['title1' => 'Overlord', 'votes1' => 0, 'title2' => 'One Piece', 'votes2' => 0] 
         ];
-        $_SESSION['collections'] = [];
-        $_SESSION['reviews'] = [];
-        $_SESSION['rev_id'] = 1; 
         saveDB();
     }
 }
 
 function saveDB() {
     global $dbFile;
-    $dump = [
-        'users' => $_SESSION['users'],
-        'collections' => $_SESSION['collections'],
-        'reviews' => $_SESSION['reviews'],
-        'rev_id' => $_SESSION['rev_id']
-    ];
-    file_put_contents($dbFile, json_encode($dump, JSON_PRETTY_PRINT));
+    file_put_contents($dbFile, json_encode($_SESSION['db'], JSON_PRETTY_PRINT));
 }
 
-loadDB(); // fire it up
+function logAct($msg) {
+    array_unshift($_SESSION['db']['activity'], $msg);
+    if(count($_SESSION['db']['activity']) > 15) array_pop($_SESSION['db']['activity']);
+}
 
-$act = $_POST['action'] ?? '';
+// dynamically calculate titles so we don't have to save them in the DB
+function calcTitle($u) {
+    if(!isset($_SESSION['db']['collections'][$u])) return "[Silent Protagonist]";
+    $cols = $_SESSION['db']['collections'][$u];
+    $revs = 0; $glaze = 0;
+    
+    foreach($_SESSION['db']['reviews'] as $aid => $arr) {
+        foreach($arr as $r) {
+            if($r['username'] == $u) {
+                $revs++;
+                if($r['score'] == 5) $glaze++;
+            }
+        }
+    }
+    
+    $watched = count($cols['watched'] ?? []);
+    $later = count($cols['later'] ?? []);
+    
+    if($glaze >= 11) return "[Glaze Lord]";
+    if($revs >= 5 && $watched == 0) return "[All Talk]";
+    if($later > 50) return "[Infinite Void]";
+    if($later > 20) return "[Procrastinator]";
+    if($later > 5) return "[Window Shopper]";
+    if($watched >= 50) return "[Domain Expansion]";
+    if($watched >= 30) return "[Grass Avoider]";
+    if($watched >= 15) return "[Seasoned Weeb]";
+    if($revs >= 50) return "[Lore Master]";
+    if($revs >= 25) return "[Cook License]";
+    if($revs >= 15) return "[Certified Critic]";
+    if($revs >= 5) return "[Hot Taker]";
+    if($watched >= 1) return "[Casual]";
+    
+    return "[Silent Protagonist]";
+}
+
+loadDB();
+
+// read JSON body since we are using JS fetch() now instead of PHP forms
+$json = file_get_contents('php://input');
+$post = json_decode($json, true) ?? $_POST;
+$act = $post['action'] ?? '';
 
 switch ($act) {
     case 'signup':
         $usr = $_POST['user'];
+        if (isset($_SESSION['db']['users'][$usr])) { header("Location: index.php?error=taken"); exit; }
         
-        if (isset($_SESSION['users'][$usr])) {
-            header("Location: index.php?error=taken");
-            exit;
-        }
+        $_SESSION['db']['users'][$usr] = ['pass' => $_POST['pass'], 'name' => $_POST['name'], 'avatar' => '👤', 'role' => 'user', 'following' => [], 'inbox' => []];
+        $_SESSION['db']['collections'][$usr] = ['later'=>[], 'watching'=>[], 'watched'=>[], 'dropped'=>[], 'favs'=>[], 'top3'=>[]];
         
-        if ($_POST['otp'] == '1234') {
-            $_SESSION['users'][$usr] = [
-                'pass' => $_POST['pass'], 
-                'name' => $_POST['name'], 
-                'phone' => $_POST['phone'], 
-                'role' => 'user',
-                'avatar' => '👤' // default generic avatar
-            ];
-            
-            // added 'watching' list for the tracker
-            $_SESSION['collections'][$usr] = ['later' => [], 'watching' => [], 'watched' => [], 'favs' => []];
-            saveDB();
-            
-            $_SESSION['curr_user'] = $usr;
-            $_SESSION['curr_name'] = $_POST['name'];
-            $_SESSION['role'] = 'user';
-            
-            setcookie('auth_token', $usr, time() + (86400 * 30), "/"); 
-            header("Location: index.php?welcome=1");
-        }
+        logAct("🎉 @$usr just joined the Zenith community!");
+        saveDB();
+        $_SESSION['curr_user'] = $usr;
+        setcookie('auth_token', $usr, time() + (86400 * 30), "/"); 
+        header("Location: index.php");
         break;
 
     case 'login':
         $usr = $_POST['user'];
-        $pwd = $_POST['pass'];
-        
-        if (isset($_SESSION['users'][$usr]) && $_SESSION['users'][$usr]['pass'] == $pwd) {
+        if (isset($_SESSION['db']['users'][$usr]) && $_SESSION['db']['users'][$usr]['pass'] == $_POST['pass']) {
             $_SESSION['curr_user'] = $usr;
-            $_SESSION['curr_name'] = $_SESSION['users'][$usr]['name'];
-            $_SESSION['role'] = $_SESSION['users'][$usr]['role'];
-            
             setcookie('auth_token', $usr, time() + (86400 * 30), "/");
-            header("Location: index.php?welcome=1");
-        } else {
-            header("Location: index.php?error=invalid");
-        }
+            header("Location: index.php");
+        } else { header("Location: index.php?error=invalid"); }
         break;
 
     case 'logout':
@@ -93,20 +109,148 @@ switch ($act) {
         header("Location: index.php");
         break;
 
+    // --- AJAX ENDPOINTS ---
+
     case 'add_list':
         $usr = $_SESSION['curr_user'];
-        $t = $_POST['type']; 
-        $id = $_POST['aid'];
+        $t = $post['type']; $id = $post['aid']; $title = $post['title'];
 
-        $dupe = false;
-        foreach ($_SESSION['collections'][$usr][$t] as $i) {
-            if ($i['id'] == $id) $dupe = true;
+        // prevent duplicates
+        foreach($_SESSION['db']['collections'][$usr] as $listType => $arr) {
+            foreach($arr as $k => $item) {
+                if($item['id'] == $id) unset($_SESSION['db']['collections'][$usr][$listType][$k]);
+            }
+            // re-index array
+            $_SESSION['db']['collections'][$usr][$listType] = array_values($_SESSION['db']['collections'][$usr][$listType]);
         }
 
-        if (!$dupe) {
-            // add episode counter if they added it to watching
-            $episodes = ($t == 'watching') ? 0 : null;
-            
+        // if they are pinning to podium, kick out the oldest one if they have 3
+        if($t == 'top3') {
+            if(count($_SESSION['db']['collections'][$usr]['top3']) >= 3) {
+                array_shift($_SESSION['db']['collections'][$usr]['top3']);
+            }
+        }
+
+        $epData = ($t == 'dropped') ? $post['drop_ep'] : (($t == 'watching') ? 0 : null);
+        $_SESSION['db']['collections'][$usr][$t][] = [
+            'id' => $id, 'title' => $title, 'img' => $post['img'], 'eps' => $epData
+        ];
+        
+        if($t == 'top3') logAct("🏆 @$usr pinned $title to their Top 3 Podium.");
+        if($t == 'dropped') logAct("🪦 @$usr rage-quit $title at episode $epData.");
+        saveDB(); 
+        echo json_encode(['status'=>'ok']);
+        break;
+
+    case 'add_rev':
+        $id = $post['aid']; $usr = $_SESSION['curr_user'];
+        if (!isset($_SESSION['db']['reviews'][$id])) $_SESSION['db']['reviews'][$id] = [];
+        
+        $_SESSION['db']['reviews'][$id][] = [
+            'id' => $_SESSION['db']['rev_id']++,
+            'user' => $_SESSION['db']['users'][$usr]['name'], 
+            'username' => $usr,
+            'avatar' => $_SESSION['db']['users'][$usr]['avatar'],
+            'title' => calcTitle($usr),
+            'txt' => $post['rev_txt'],
+            'score' => $post['tier_score'],
+            'spoiler' => $post['is_spoiler'] ?? false,
+            'wtakes' => [] // stores user IDs who hyped this
+        ];
+        
+        // ping followers
+        $animeName = $post['anime_title'] ?? 'an anime';
+        foreach($_SESSION['db']['users'] as $k => $uData) {
+            if(in_array($usr, $uData['following'] ?? [])) {
+                $_SESSION['db']['users'][$k]['inbox'][] = "🔔 @$usr just reviewed $animeName!";
+            }
+        }
+
+        logAct("✍️ @$usr dropped a review for $animeName.");
+        saveDB(); 
+        echo json_encode(['status'=>'ok', 'reviews'=>$_SESSION['db']['reviews'][$id]]);
+        break;
+        
+    case 'w_take':
+        $aid = $post['aid']; $rid = $post['rid']; $usr = $_SESSION['curr_user'];
+        foreach($_SESSION['db']['reviews'][$aid] as $k => $r) {
+            if($r['id'] == $rid) {
+                if(!isset($r['wtakes'])) $_SESSION['db']['reviews'][$aid][$k]['wtakes'] = [];
+                $pos = array_search($usr, $_SESSION['db']['reviews'][$aid][$k]['wtakes']);
+                
+                // toggle logic
+                if($pos !== false) unset($_SESSION['db']['reviews'][$aid][$k]['wtakes'][$pos]); 
+                else $_SESSION['db']['reviews'][$aid][$k]['wtakes'][] = $usr; 
+                
+                $_SESSION['db']['reviews'][$aid][$k]['wtakes'] = array_values($_SESSION['db']['reviews'][$aid][$k]['wtakes']);
+            }
+        }
+        saveDB();
+        echo json_encode(['status'=>'ok', 'reviews'=>$_SESSION['db']['reviews'][$aid]]);
+        break;
+
+    case 'vote_vs':
+        $side = $post['side'];
+        $_SESSION['db']['versus']["votes$side"]++;
+        saveDB();
+        echo json_encode(['v1' => $_SESSION['db']['versus']['votes1'], 'v2' => $_SESSION['db']['versus']['votes2']]);
+        break;
+
+    case 'get_profile':
+        $tgt = $post['target'];
+        $me = $_SESSION['curr_user'] ?? '';
+        
+        $mutual = [];
+        if($me && $me !== $tgt) {
+            $myLater = $_SESSION['db']['collections'][$me]['later'] ?? [];
+            $tgtLater = $_SESSION['db']['collections'][$tgt]['later'] ?? [];
+            foreach($tgtLater as $tShow) {
+                foreach($myLater as $mShow) {
+                    if($tShow['id'] == $mShow['id']) $mutual[] = $tShow;
+                }
+            }
+        }
+        
+        $followers = 0;
+        foreach($_SESSION['db']['users'] as $u) { if(in_array($tgt, $u['following'] ?? [])) $followers++; }
+        $is_following = $me ? in_array($tgt, $_SESSION['db']['users'][$me]['following'] ?? []) : false;
+        
+        // Grab their top 3 flex
+        $top3 = $_SESSION['db']['collections'][$tgt]['top3'] ?? [];
+
+        echo json_encode([
+            'status' => 'ok',
+            'user' => $_SESSION['db']['users'][$tgt],
+            'title' => calcTitle($tgt),
+            'followers' => $followers,
+            'is_following' => $is_following,
+            'mutual' => $mutual,
+            'top3' => $top3
+        ]);
+        break;
+
+    case 'toggle_follow':
+        $tgt = $post['target']; $me = $_SESSION['curr_user'];
+        $pos = array_search($tgt, $_SESSION['db']['users'][$me]['following']);
+        if($pos !== false) {
+            unset($_SESSION['db']['users'][$me]['following'][$pos]);
+        } else {
+            $_SESSION['db']['users'][$me]['following'][] = $tgt;
+            $_SESSION['db']['users'][$tgt]['inbox'][] = "👋 @$me just started following you!";
+        }
+        $_SESSION['db']['users'][$me]['following'] = array_values($_SESSION['db']['users'][$me]['following']);
+        saveDB();
+        echo json_encode(['status'=>'ok']);
+        break;
+
+    case 'clear_inbox':
+        $usr = $_SESSION['curr_user'];
+        $_SESSION['db']['users'][$usr]['inbox'] = [];
+        saveDB();
+        echo json_encode(['status'=>'ok']);
+        break;
+}
+?><?php
             $_SESSION['collections'][$usr][$t][] = [
                 'id' => $id, 
                 'title' => $_POST['title'], 
@@ -173,8 +317,7 @@ switch ($act) {
         header("Location: index.php?open=" . $id);
         break;
 }
-?>
-                'id' => $id, 
+?><?php         'id' => $id, 
                 'title' => $_POST['title'], 
                 'img' => $_POST['img']
             ];
