@@ -256,17 +256,40 @@ $my_inbox = $u ? ($_SESSION['db']['users'][$u]['inbox'] ?? []) : [];
         </div>
     </div>
 
+    <!-- AUTH MODAL (Login / Register) -->
     <div id="auth-modal" class="modal">
-        <div class="modal-box auth-box">
+        <div class="modal-box auth-box" style="max-width: 400px; text-align: center;">
             <span class="close" onclick="hideModal('auth-modal')">&times;</span>
+            
+            <!-- LOGIN FORM -->
             <div id="f-login">
                 <h2>Login</h2>
-                <form action="backend.php" method="POST">
+                <!-- Added autocomplete="off" -->
+                <form action="backend.php" method="POST" autocomplete="off">
                     <input type="hidden" name="action" value="login">
-                    <input type="text" name="user" placeholder="Username" required>
-                    <input type="password" name="pass" placeholder="Password" required>
+                    <input type="text" name="user" placeholder="Username" required autocomplete="off">
+                    <!-- The new-password trick stops Chrome from auto-filling -->
+                    <input type="password" name="pass" placeholder="Password" required autocomplete="new-password">
                     <button class="btn main-btn block-btn">Enter</button>
                 </form>
+                <p style="margin-top: 15px; font-size: 0.9rem; color: grey;">
+                    Don't have an account? <span style="color: var(--red); font-weight: bold; cursor: pointer;" onclick="toggleAuth('register')">Register here</span>
+                </p>
+            </div>
+
+            <!-- REGISTER FORM -->
+            <div id="f-register" style="display: none;">
+                <h2>Create Account</h2>
+                <form action="backend.php" method="POST" autocomplete="off">
+                    <input type="hidden" name="action" value="signup">
+                    <input type="text" name="name" placeholder="Display Name (e.g. Naruto Fan)" required autocomplete="off">
+                    <input type="text" name="user" placeholder="Username" required autocomplete="off">
+                    <input type="password" name="pass" placeholder="Password" required autocomplete="new-password">
+                    <button class="btn main-btn block-btn">Join Zenith</button>
+                </form>
+                <p style="margin-top: 15px; font-size: 0.9rem; color: grey;">
+                    Already have an account? <span style="color: var(--red); font-weight: bold; cursor: pointer;" onclick="toggleAuth('login')">Login here</span>
+                </p>
             </div>
         </div>
     </div>
