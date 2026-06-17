@@ -88,3 +88,23 @@ a { text-decoration: none; color: inherit; }
 
 select, textarea, input[type="text"], input[type="password"] { width: 100%; padding: 10px; margin-top: 5px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 5px; }
 
+/* --- AUTH MODALS FIX --- */
+#f-login form, #f-register form {
+    display: flex;
+    flex-direction: column;
+    gap: 15px; 
+    margin-top: 20px;
+}
+
+#f-login input[type="text"], 
+#f-login input[type="password"],
+#f-register input[type="text"], 
+#f-register input[type="password"] {
+    margin-top: 0; 
+    padding: 12px; 
+}
+
+#f-login button, #f-register button {
+    padding: 12px; 
+    font-size: 1rem;
+}
