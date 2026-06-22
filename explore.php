@@ -14,7 +14,6 @@ $my_inbox = $u ? ($_SESSION['db']['users'][$u]['inbox'] ?? []) : [];
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    
     <nav class="nav">
         <div class="nav-left">
             <div class="logo" onclick="window.location='index.php'">Zenith<span>Anime</span></div>
@@ -31,10 +30,10 @@ $my_inbox = $u ? ($_SESSION['db']['users'][$u]['inbox'] ?? []) : [];
                     🔔 <?php if(count($my_inbox) > 0) echo "<span class='badge'>".count($my_inbox)."</span>"; ?>
                     <div id="inbox-drop" class="inbox-drop">
                         <?php 
-                        if(empty($my_inbox)) echo "<p style='padding:10px; color:grey;'>No new alerts.</p>";
+                        if(empty($my_inbox)) echo "<p style='padding:10px; color:grey;'>No alerts.</p>";
                         else {
                             foreach(array_reverse($my_inbox) as $msg) echo "<div class='msg'>$msg</div>";
-                            echo "<button class='btn block-btn' style='background:#333; color:white;' onclick='clearInbox()'>Clear All</button>";
+                            echo "<button class='btn block-btn' style='background:#333; color:white;' onclick='clearInbox()'>Clear</button>";
                         }
                         ?>
                     </div>
@@ -49,7 +48,7 @@ $my_inbox = $u ? ($_SESSION['db']['users'][$u]['inbox'] ?? []) : [];
     <div class="cinematic-hero">
         <div class="glass-title">
             <h1>Discover Your Next Obsession</h1>
-            <p>Filter through thousands of anime to find exactly what you want.</p>
+            <p>Filter through thousands of anime powered by AniList.</p>
         </div>
     </div>
 
@@ -59,19 +58,19 @@ $my_inbox = $u ? ($_SESSION['db']['users'][$u]['inbox'] ?? []) : [];
             <label>Genre</label>
             <select id="ex-genre">
                 <option value="">All Genres</option>
-                <option value="1">Action</option>
-                <option value="22">Romance</option>
-                <option value="36">Slice of Life</option>
-                <option value="10">Fantasy</option>
-                <option value="8">Drama</option>
+                <option value="Action">Action</option>
+                <option value="Romance">Romance</option>
+                <option value="Slice of Life">Slice of Life</option>
+                <option value="Fantasy">Fantasy</option>
+                <option value="Drama">Drama</option>
             </select>
             
             <label>Status</label>
             <select id="ex-status">
                 <option value="">Any</option>
-                <option value="airing">Airing</option>
-                <option value="complete">Complete</option>
-                <option value="upcoming">Upcoming</option>
+                <option value="RELEASING">Airing</option>
+                <option value="FINISHED">Complete</option>
+                <option value="NOT_YET_RELEASED">Upcoming</option>
             </select>
             <button class="btn main-btn block-btn" style="margin-top:20px;" onclick="runExplore()">Apply Filters</button>
         </div>
@@ -81,21 +80,10 @@ $my_inbox = $u ? ($_SESSION['db']['users'][$u]['inbox'] ?? []) : [];
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=3"></script>
     <script>
-        async function runExplore() {
-            document.getElementById('explore-grid').innerHTML = '<p>Loading...</p>';
-            let g = document.getElementById('ex-genre').value;
-            let s = document.getElementById('ex-status').value;
-            let ep = `/anime?order_by=score&sort=desc`;
-            
-            if(g) ep += `&genres=${g}`;
-            if(s) ep += `&status=${s}`;
-            
-            await getGrid(ep, 'explore-grid', 24);
-        }
-        runExplore(); 
+        // Trigger the custom AniList explore query immediately on load
+        document.addEventListener('DOMContentLoaded', () => { runExplore(); });
     </script>
 </body>
 </html>
-
